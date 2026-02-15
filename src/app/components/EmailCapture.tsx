@@ -1,27 +1,66 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { EmailInput } from './EmailInput';
 import { Button } from './ui/button';
 import { AnimatedSection } from './AnimatedSection';
+import { useWaitlist } from '../hooks/useWaitlist';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
 
 export function EmailCapture() {
   const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [botField, setBotField] = useState('');
+  const { submit, status, error, reset } = useWaitlist();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const metadata = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return {};
+    }
+
+    const { language } = window.navigator;
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    return {
+      language,
+      timezone,
+      path: window.location.pathname,
+    };
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email.trim()) {
-      setIsLoading(true);
-      
-      // Simulate submission
+    if (status === 'loading') return;
+
+    const trimmedEmail = email.trim();
+
+    if (botField) {
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(trimmedEmail)) {
+      setErrorMessage('Please provide a valid email address.');
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const result = await submit({
+      email: trimmedEmail,
+      source: 'devflow-waitlist',
+      metadata,
+    });
+
+    if (result.ok) {
+      setEmail('');
+      setSuccessMessage(result.message);
       setTimeout(() => {
-        setIsLoading(false);
-        setSubmitted(true);
-        setEmail('');
-        
-        // Reset after 4 seconds
-        setTimeout(() => setSubmitted(false), 4000);
-      }, 800);
+        setSuccessMessage(null);
+        reset();
+      }, 5000);
+    } else if (result.message !== 'Cancelled') {
+      setErrorMessage(result.message);
     }
   };
 
@@ -45,7 +84,21 @@ export function EmailCapture() {
                 </p>
               </div>
               
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                <label className="sr-only" htmlFor="website">
+                  Leave this empty
+                </label>
+                <input
+                  id="website"
+                  type="text"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={botField}
+                  onChange={(event) => setBotField(event.target.value)}
+                  className="hidden"
+                  aria-hidden="true"
+                />
+
                 <EmailInput 
                   value={email}
                   onChange={setEmail}
@@ -57,15 +110,22 @@ export function EmailCapture() {
                   size="xl"
                   type="submit" 
                   className="w-full"
+                  disabled={status === 'loading'}
                 >
-                  {isLoading ? 'Submitting...' : 'Request Early Access'}
+                  {status === 'loading' ? 'Submitting...' : 'Request Early Access'}
                 </Button>
-                
-                {submitted && (
-                  <div className="mt-4 p-4 bg-[var(--cool-desaturated-teal)]/10 border border-[var(--cool-desaturated-teal)] rounded-[var(--radius-sm)] animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    <p className="text-[var(--font-size-caption)] leading-[var(--line-height-caption)] text-[var(--text-primary)] text-center font-medium">
-                      ✓ Thank you. You'll hear from us soon.
-                    </p>
+
+                {(successMessage || errorMessage || error) && (
+                  <div
+                    className={`mt-2 rounded-[var(--radius-sm)] border px-4 py-3 text-center text-[var(--font-size-caption)] leading-[var(--line-height-caption)] ${
+                      successMessage
+                        ? 'border-[var(--cool-desaturated-teal)] bg-[var(--cool-desaturated-teal)]/10 text-[var(--text-primary)]'
+                        : 'border-red-500/40 bg-red-500/10 text-red-50'
+                    }`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {successMessage ?? errorMessage ?? error}
                   </div>
                 )}
                 
